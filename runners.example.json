@@ -1,0 +1,15 @@
+{
+  "runners": [
+    {
+      "name": "my-org",
+      "scope": "org",
+      "target": "my-github-org"
+    },
+    {
+      "name": "my-personal-repo",
+      "scope": "repo",
+      "target": "myuser/my-repo",
+      "labels": ["self-hosted", "linux", "x64"]
+    }
+  ]
+}

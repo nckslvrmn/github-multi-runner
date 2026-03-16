@@ -1,0 +1,12 @@
+services:
+  github-runner:
+    image: ghcr.io/actions/actions-runner:2.332.0
+    user: root
+    entrypoint: ["/bin/bash", "/config/entrypoint.sh"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./entrypoint.sh:/config/entrypoint.sh:ro
+      - ./runners.json:/config/runners.json:ro
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+    restart: unless-stopped
