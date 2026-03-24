@@ -66,6 +66,19 @@ setup_runner() {
     local name="$1" scope="$2" target="$3" labels="$4"
     local runner_dir="$RUNNERS_DIR/$name"
 
+    # Deregister any previous registration before wiping the directory.
+    # This clears the GitHub-side broker session so a restarted container
+    # doesn't hit "session already exists" conflicts.
+    if [ -f "$runner_dir/.runner" ]; then
+        echo "[$name] Removing previous registration..."
+        local remove_token
+        if remove_token=$(removal_token "$scope" "$target" 2>/dev/null); then
+            su -s /bin/bash runner -c "cd '$runner_dir' && ./config.sh remove --token '$remove_token'" 2>/dev/null || true
+        else
+            echo "[$name] Warning: could not get removal token, proceeding anyway." >&2
+        fi
+    fi
+
     echo "[$name] Preparing runner directory..."
     rm -rf "$runner_dir"
     cp -a "$BASE_DIR/." "$runner_dir"
@@ -169,11 +182,13 @@ watch_config() {
 
             if [ -z "${RUNNER_PIDS[$name]:-}" ]; then
                 echo "[watch] New runner '$name' detected, starting..."
-                start_runner "$name" "$scope" "$target" "$labels"
+                start_runner "$name" "$scope" "$target" "$labels" \
+                    || echo "[watch] ERROR: failed to start '$name', will retry next cycle." >&2
             elif [ "${RUNNER_HASHES[$name]:-}" != "$hash" ]; then
                 echo "[watch] Config changed for '$name', restarting..."
                 stop_runner "$name"
-                start_runner "$name" "$scope" "$target" "$labels"
+                start_runner "$name" "$scope" "$target" "$labels" \
+                    || echo "[watch] ERROR: failed to restart '$name', will retry next cycle." >&2
             fi
         done
 
