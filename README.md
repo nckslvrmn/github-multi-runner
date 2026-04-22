@@ -2,7 +2,7 @@
 
 Runs multiple GitHub Actions self-hosted runners from a single container, configured via a JSON file. No custom Docker image — just an entrypoint script mounted into the official `ghcr.io/actions/actions-runner` image.
 
-Runners are re-registered on each startup. The config file is watched at runtime: new runners are launched automatically, changed runners are restarted, and removed runners are stopped.
+The config file is watched at runtime: new runners are launched automatically, changed runners are restarted, unchanged runners are left alone, and removed runners are gracefully drained. Each runner writes its own log file, and the container's stdout carries only the manager's summary events.
 
 ## Prerequisites
 
@@ -58,8 +58,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./entrypoint.sh:/config/entrypoint.sh:ro
       - ./runners.json:/config/runners.json:ro
+      - ./state:/runners
+      - ./logs:/runners/_logs
     environment:
       - GITHUB_TOKEN=${GITHUB_TOKEN}
+    stop_grace_period: 5m
     restart: unless-stopped
 ```
 
@@ -76,6 +79,20 @@ GITHUB_TOKEN=your_pat docker compose up -d
 | `GITHUB_TOKEN` | Yes | — | PAT used to generate runner registration tokens |
 | `RUNNERS_CONFIG` | No | `/config/runners.json` | Path to the runners config file inside the container |
 | `CONFIG_POLL_INTERVAL` | No | `30` | Seconds between config file checks for live updates |
+| `LOG_DIR` | No | `/runners/_logs` | Directory for per-runner log files |
+| `LOG_MAX_BYTES` | No | `52428800` | Size threshold (bytes) at which a runner log is rotated |
+| `LOG_KEEP` | No | `3` | Number of rotated log files to keep per runner |
+| `GITHUB_API_RETRIES` | No | `5` | Max attempts (with backoff) for token fetches against the GitHub API |
+
+## Logging
+
+Stdout carries only manager-level events (one line per start/stop/reconcile). Each runner's full output — `config.sh`, `run.sh`, and deregistration — goes to `${LOG_DIR}/<name>.log`, which rotates at `LOG_MAX_BYTES` (keeping `LOG_KEEP` older files as `<name>.log.1`, `.2`, …).
+
+With the example `docker-compose.yml` binding `./logs:/runners/_logs`, you can tail logs from the host:
+
+```sh
+tail -F logs/my-org.log
+```
 
 ## Live config updates
 
@@ -84,6 +101,14 @@ The entrypoint polls `runners.json` every `CONFIG_POLL_INTERVAL` seconds. Change
 - **New runner added** → registered and started
 - **Runner config changed** (any field) → gracefully stopped, re-registered, restarted
 - **Runner removed** → gracefully stopped
+- **Unrelated runners** are left untouched — editing one entry never bounces the others
+- **Crashed runner** (subshell died outside of a drain) is detected on the next reconcile and respawned
+
+Editor atomic-saves are tolerated: if `runners.json` is briefly empty or malformed during a write, the poll skips that cycle and retries.
+
+## Registration persistence
+
+With `/runners` bind-mounted (as in the example compose), each runner's registration is kept across container restarts. On boot, the entrypoint compares the on-disk config hash to the desired one and only re-registers when something actually changed. Without the bind mount, runners re-register on every start (the original behavior).
 
 ## Graceful shutdown
 
@@ -93,7 +118,7 @@ When a runner is stopped (due to a config change, removal, or container shutdown
 2. Fetches a removal token from the GitHub API and calls `config.sh remove` to deregister the runner — GitHub stops sending it new jobs
 3. Waits for `run.sh` to exit naturally after the current job completes
 
-If the removal token cannot be fetched, it falls back to SIGTERM. On container shutdown (`docker stop`), all runners drain concurrently before the process exits.
+If the removal token cannot be fetched (after `GITHUB_API_RETRIES` attempts with backoff), it falls back to SIGTERM. On container shutdown (`docker stop`), all runners drain concurrently before the process exits — set `stop_grace_period` in the compose file high enough to accommodate your longest job.
 
 ## Docker socket access
 

@@ -3,10 +3,18 @@ services:
     image: ghcr.io/actions/actions-runner:2.332.0
     user: root
     entrypoint: ["/bin/bash", "/config/entrypoint.sh"]
+    # Give runners time to drain in-flight jobs before SIGKILL.
+    stop_grace_period: 5m
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./entrypoint.sh:/config/entrypoint.sh:ro
       - ./runners.json:/config/runners.json:ro
+      # Persist per-runner state across container restarts so registrations
+      # are reused instead of thrashed. Remove this line if you prefer the
+      # original "re-register on every start" behavior.
+      - ./state:/runners
+      # Per-runner log files. Tail from the host with `tail -f logs/<name>.log`.
+      - ./logs:/runners/_logs
     environment:
       - GITHUB_TOKEN=${GITHUB_TOKEN}
     restart: unless-stopped
