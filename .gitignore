@@ -1,2 +1,4 @@
 runners.json
 docker-compose.yml
+logs/*
+state/*
