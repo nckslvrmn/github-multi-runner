@@ -1,6 +1,6 @@
 services:
   github-runner:
-    image: ghcr.io/actions/actions-runner:2.332.0
+    image: ghcr.io/actions/actions-runner:2.334.0
     user: root
     entrypoint: ["/bin/bash", "/config/entrypoint.sh"]
     # Give runners time to drain in-flight jobs before SIGKILL.
