@@ -304,7 +304,8 @@ reconcile() {
 # --- Main ---
 
 [ -f "$CONFIG_PATH" ] || { merr "config not found at $CONFIG_PATH"; exit 1; }
-mkdir -p "$RUNNERS_DIR" "$LOG_DIR"
+mkdir -p "$RUNNERS_DIR" "$LOG_DIR" /opt/hostedtoolcache
+chown runner:runner /opt/hostedtoolcache
 
 initial_runners=$(read_config_runners) || { merr "initial config unreadable"; exit 1; }
 initial_count=$(jq 'length' <<< "$initial_runners")
